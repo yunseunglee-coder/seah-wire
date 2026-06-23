@@ -1,0 +1,1273 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>크레인 와이어로프 교체주기 관리 App</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap');
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+        }
+        /* AppSheet 특유의 스크롤바 미려화 */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col pb-24 md:pb-0">
+
+    <!-- 상단 네비게이션 헤더 -->
+    <header class="bg-blue-600 text-white shadow-md sticky top-0 z-40">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
+            <div class="flex items-center space-x-3">
+                <div class="bg-white text-blue-600 p-2 rounded-lg shadow-inner">
+                    <i data-lucide="wrench" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold tracking-tight">와이어로프 교체 관리 시스템</h1>
+                    <p class="text-xs text-blue-100">외주 공동 보전 스마트 대시보드</p>
+                </div>
+            </div>
+            <div class="flex items-center space-x-2">
+                <button onclick="resetToDefault()" class="text-xs bg-blue-700 hover:bg-blue-800 text-white px-3 py-1.5 rounded-md flex items-center transition">
+                    <i data-lucide="rotate-ccw" class="w-3.5 h-3.5 mr-1"></i> 데이터 초기화
+                </button>
+                <button onclick="exportToCSV()" class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-md flex items-center transition">
+                    <i data-lucide="download" class="w-3.5 h-3.5 mr-1"></i> 엑셀 내보내기
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- 메인 컨테이너 -->
+    <main class="flex-grow max-w-7xl w-full mx-auto p-4 md:p-6 overflow-hidden">
+        
+        <!-- 대시보드 뷰 (Dashboard Tab) -->
+        <section id="view-dashboard" class="space-y-6 tab-view">
+            <!-- 핵심 KPI 요약 카드 -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex items-center space-x-4">
+                    <div class="p-3 rounded-lg bg-slate-100 text-slate-600">
+                        <i data-lucide="database" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-400 font-medium">전체 설비 대수</p>
+                        <h3 id="stat-total-cranes" class="text-xl font-bold text-slate-700">0대</h3>
+                    </div>
+                </div>
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex items-center space-x-4">
+                    <div class="p-3 rounded-lg bg-emerald-100 text-emerald-600">
+                        <i data-lucide="check-circle" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-400 font-medium">교체 완료 건</p>
+                        <h3 id="stat-completed" class="text-xl font-bold text-slate-700">0건</h3>
+                    </div>
+                </div>
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex items-center space-x-4">
+                    <div class="p-3 rounded-lg bg-blue-100 text-blue-600">
+                        <i data-lucide="external-link" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-400 font-medium">교체 권장 (외주 대기)</p>
+                        <h3 id="stat-in-progress" class="text-xl font-bold text-slate-700">0건</h3>
+                    </div>
+                </div>
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex items-center space-x-4 animate-pulse">
+                    <div class="p-3 rounded-lg bg-red-100 text-red-600">
+                        <i data-lucide="alert-triangle" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-400 font-medium">주기 초과 (위험/지연)</p>
+                        <h3 id="stat-upcoming" class="text-xl font-bold text-red-600">0건</h3>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 시각화 차트 영역 -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- 라인별 예정 보전 차트 -->
+                <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-100">
+                    <h3 class="text-sm font-bold text-slate-600 mb-4 flex items-center">
+                        <i data-lucide="bar-chart-3" class="w-4 h-4 mr-1 text-blue-500"></i> 라인별 보전 예정 물량 통계
+                    </h3>
+                    <div class="relative h-64">
+                        <canvas id="lineChart"></canvas>
+                    </div>
+                </div>
+                <!-- 상태 분배 도넛 차트 -->
+                <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-100">
+                    <h3 class="text-sm font-bold text-slate-600 mb-4 flex items-center">
+                        <i data-lucide="pie-chart" class="w-4 h-4 mr-1 text-teal-500"></i> 와이어로프 안전 등급 상태 비율
+                    </h3>
+                    <div class="relative h-64 flex justify-center">
+                        <canvas id="donutChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 실시간 경고 및 최우선 관리 목록 -->
+            <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-100">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-sm font-bold text-slate-600 flex items-center">
+                        <i data-lucide="bell" class="w-4 h-4 mr-1 text-red-500 animate-bounce"></i> 지연 설비 및 임박 보전 집중 관리 (최근 일정 우선순)
+                    </h3>
+                    <button onclick="switchTab('list')" class="text-xs text-blue-600 hover:underline">전체 목록 보기 &rarr;</button>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse text-xs">
+                        <thead>
+                            <tr class="bg-slate-50 text-slate-500 uppercase font-semibold">
+                                <th class="p-2.5">라인</th>
+                                <th class="p-2.5">설비명</th>
+                                <th class="p-2.5">구분</th>
+                                <th class="p-2.5">교체주기</th>
+                                <th class="p-2.5">예정일</th>
+                                <th class="p-2.5">보전 상태</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dashboard-upcoming-list">
+                            <!-- JS에서 렌더링 -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- 교체 현황 그리드/테이블 뷰 (List Tab) -->
+        <section id="view-list" class="space-y-4 tab-view hidden">
+            <!-- 검색 및 상세 필터바 -->
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-100 space-y-3">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+                    <!-- 검색 인풋 -->
+                    <div class="relative">
+                        <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                            <i data-lucide="search" class="w-4 h-4"></i>
+                        </span>
+                        <input type="text" id="searchQuery" oninput="applyFilters()" placeholder="설비명 또는 용량 검색..." class="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <!-- 라인 필터 -->
+                    <div>
+                        <select id="filterLine" onchange="applyFilters()" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="ALL">전체 라인 보기</option>
+                            <option value="CPL">CPL Line</option>
+                            <option value="CRM">CRM Line</option>
+                            <option value="CGL">CGL Line</option>
+                            <option value="1CCL">1CCL Line</option>
+                            <option value="2CCL">2CCL Line</option>
+                            <option value="3CCL">3CCL Line</option>
+                            <option value="UTILITY">UTILITY Line</option>
+                        </select>
+                    </div>
+                    <!-- 구분 필터 (주권/보권) -->
+                    <div>
+                        <select id="filterType" onchange="applyFilters()" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="ALL">주권/보권 전체</option>
+                            <option value="주권">주권 (Main)</option>
+                            <option value="보권">보권 (Aux)</option>
+                        </select>
+                    </div>
+                    <!-- 톤수 필터 -->
+                    <div>
+                        <select id="filterCapacity" onchange="applyFilters()" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="ALL">용량(톤수) 전체</option>
+                            <option value="high">30TON 이상 고중량</option>
+                            <option value="medium">10TON 이상 ~ 30TON 미만</option>
+                            <option value="low">10TON 미만 경량</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 교체주기 메인 데이터 테이블 (체크박스 탑재) -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+                <div class="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                    <h3 class="text-sm font-bold text-slate-700 flex items-center">
+                        <i data-lucide="layout-grid" class="w-4.5 h-4.5 mr-1 text-blue-500"></i> 와이어로프 보전 스케줄 모니터링 마스터
+                    </h3>
+                    <div class="flex items-center space-x-3 text-xs">
+                        <span class="inline-flex items-center"><span class="w-2.5 h-2.5 rounded-full bg-[#10b981] mr-1"></span> 완료/정상</span>
+                        <span class="inline-flex items-center"><span class="w-2.5 h-2.5 rounded-full bg-[#3b82f6] mr-1"></span> 교체 권장 (임박)</span>
+                        <span class="inline-flex items-center"><span class="w-2.5 h-2.5 rounded-full bg-[#ef4444] mr-1"></span> 주기 초과 (위험)</span>
+                    </div>
+                </div>
+                <div class="overflow-x-auto max-h-[600px]">
+                    <table class="w-full border-collapse text-xs text-center">
+                        <thead class="bg-slate-100 text-slate-600 font-semibold sticky top-0 z-10">
+                            <tr class="border-b border-slate-200">
+                                <th rowspan="2" class="p-2 border-r border-slate-200 min-w-[40px]">
+                                    <input type="checkbox" id="select-all-cranes" onchange="toggleSelectAllCranes(this)" class="w-4 h-4 text-blue-600 rounded border-slate-300">
+                                </th>
+                                <th rowspan="2" class="p-2 border-r border-slate-200 min-w-[70px]">LINE</th>
+                                <th rowspan="2" class="p-2 border-r border-slate-200 min-w-[50px]">순번</th>
+                                <th rowspan="2" class="p-2 border-r border-slate-200 min-w-[110px]">설비명</th>
+                                <th rowspan="2" class="p-2 border-r border-slate-200 min-w-[60px]">용량</th>
+                                <th rowspan="2" class="p-2 border-r border-slate-200 min-w-[55px]">구분</th>
+                                <th rowspan="2" class="p-2 border-r border-slate-200 min-w-[75px]">교체주기</th>
+                                <th colspan="4" class="p-1 border-r border-slate-200 bg-blue-50 text-blue-800">2026년 교체일 (오늘: 26.06.23)</th>
+                                <th colspan="4" class="p-1 bg-emerald-50/50 text-emerald-800">2027년 교체일</th>
+                            </tr>
+                            <tr class="border-b border-slate-200 bg-slate-50">
+                                <th class="p-1.5 border-r border-slate-200 font-medium">1분기</th>
+                                <th class="p-1.5 border-r border-slate-200 font-medium">2분기</th>
+                                <th class="p-1.5 border-r border-slate-200 font-medium">3분기</th>
+                                <th class="p-1.5 border-r border-slate-200 font-medium">4분기</th>
+                                <th class="p-1.5 border-r border-slate-200 font-medium">1분기</th>
+                                <th class="p-1.5 border-r border-slate-200 font-medium">2분기</th>
+                                <th class="p-1.5 border-r border-slate-200 font-medium">3분기</th>
+                                <th class="p-1.5 font-medium">4분기</th>
+                            </tr>
+                        </thead>
+                        <tbody id="crane-table-body" class="divide-y divide-slate-100">
+                            <!-- 로드 시 동적 생성됨 -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- 외주 공동 처리 뷰 (Outsourcing Tab) -->
+        <section id="view-outsourcing" class="space-y-6 tab-view hidden">
+            <!-- 안내 패널 -->
+            <div class="bg-gradient-to-r from-blue-500 to-indigo-600 text-white p-5 rounded-2xl shadow-md space-y-2">
+                <h3 class="text-base font-bold flex items-center">
+                    <i data-lucide="external-link" class="w-5 h-5 mr-1.5"></i> 와이어로프 임박분 공동 외주 시스템
+                </h3>
+                <p class="text-xs text-blue-50 opacity-90 leading-relaxed">
+                    크레인 비가동 시간(Downtime)을 줄이고 정비비용을 최적화하기 위해, 교체 주기가 임박한(파란색) 설비들을 패키지로 묶어 공동 외주 발주하는 화면입니다. 이미 교체 주기를 넘긴 위험(빨간색) 설비는 신속하게 외주 목록에 포함해야 합니다.
+                </p>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- 패키지 1: 1년 및 단기 주기 설비 -->
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 space-y-4">
+                    <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+                        <h4 class="font-bold text-slate-700 flex items-center">
+                            <i data-lucide="pocket" class="w-4 h-4 mr-1 text-blue-500"></i> 단기 주기 (6개월/1년/1.5년)
+                        </h4>
+                        <span id="pack-a-badge" class="px-2.5 py-1 text-[11px] font-extrabold bg-blue-50 text-blue-600 rounded-full">0대</span>
+                    </div>
+                    <div id="package-a-list" class="space-y-2.5 max-h-[350px] overflow-y-auto pr-1">
+                        <!-- 동적 카드 -->
+                    </div>
+                </div>
+
+                <!-- 패키지 2: 2년 이상 장기 주기 설비 -->
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 space-y-4">
+                    <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+                        <h4 class="font-bold text-slate-700 flex items-center">
+                            <i data-lucide="clock-4" class="w-4 h-4 mr-1 text-indigo-500"></i> 중장기 주기 (2년/4년/5년/10년)
+                        </h4>
+                        <span id="pack-b-badge" class="px-2.5 py-1 text-[11px] font-extrabold bg-indigo-50 text-indigo-600 rounded-full">0대</span>
+                    </div>
+                    <div id="package-b-list" class="space-y-2.5 max-h-[350px] overflow-y-auto pr-1">
+                        <!-- 동적 카드 -->
+                    </div>
+                </div>
+
+                <!-- 실시간 공동 발주 견적 시뮬레이터 -->
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 space-y-4">
+                    <h4 class="font-bold text-slate-700 border-b border-slate-100 pb-3 flex items-center">
+                        <i data-lucide="calculator" class="w-4 h-4 mr-1 text-emerald-500"></i> 공동 외주 바스켓 시뮬레이터
+                    </h4>
+                    <div class="space-y-3">
+                        <p class="text-[10px] text-slate-400 font-semibold uppercase">선택된 보전 설비 리스트</p>
+                        <div id="sim-body" class="space-y-2 max-h-[160px] overflow-y-auto pr-1 text-[11px] text-slate-600">
+                            <!-- JS 동적 로드 -->
+                        </div>
+                    </div>
+                    <div id="sim-summary" class="pt-2 border-t border-slate-100">
+                        <!-- 시너지 정보 동적 출력 -->
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 크레인 등록 및 데이터 편집 폼 (Add Tab) -->
+        <section id="view-add" class="space-y-4 tab-view hidden">
+            <div class="max-w-2xl mx-auto bg-white p-6 rounded-xl shadow-md border border-slate-100">
+                <h3 class="text-base font-bold text-slate-700 mb-4 flex items-center">
+                    <i data-lucide="plus-square" class="w-5 h-5 mr-1.5 text-blue-600"></i> 신규 와이어로프 보전 스케줄 등록
+                </h3>
+                <form id="crane-form" onsubmit="saveNewCrane(event)" class="space-y-4 text-xs">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-slate-500 font-medium mb-1">설비 소속 LINE</label>
+                            <select id="form-line" required class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="CPL">CPL Line</option>
+                                <option value="CRM">CRM Line</option>
+                                <option value="CGL">CGL Line</option>
+                                <option value="1CCL">1CCL Line</option>
+                                <option value="2CCL">2CCL Line</option>
+                                <option value="3CCL">3CCL Line</option>
+                                <option value="UTILITY">UTILITY Line</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-slate-500 font-medium mb-1">설비 순번</label>
+                            <input type="number" id="form-seq" required min="1" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="예: 1">
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-slate-500 font-medium mb-1">크레인 설비명</label>
+                            <input type="text" id="form-name" required class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="예: H1, P2">
+                        </div>
+                        <div>
+                            <label class="block text-slate-500 font-medium mb-1">크레인 용량</label>
+                            <input type="text" id="form-capacity" required class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="예: 30TON">
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-slate-500 font-medium mb-1">작동 구분</label>
+                            <select id="form-type" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="주권">주권 (Main)</option>
+                                <option value="보권">보권 (Aux)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-slate-500 font-medium mb-1">권장 교체주기</label>
+                            <input type="text" id="form-cycle" required class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="예: 1년, 1년 6개월, 2년">
+                        </div>
+                    </div>
+
+                    <div class="border-t border-slate-100 pt-3">
+                        <h4 class="font-bold text-slate-600 mb-2">교체 예정 일정 및 최초 이력 입력</h4>
+                        <div class="grid grid-cols-3 gap-2">
+                            <div>
+                                <label class="block text-slate-400 mb-1">대상 분기 선택</label>
+                                <select id="form-schedule-quarter" class="w-full px-2 py-1.5 border border-slate-200 rounded text-xs">
+                                    <option value="2026-1Q">2026 1Q</option>
+                                    <option value="2026-2Q">2026 2Q</option>
+                                    <option value="2026-3Q">2026 3Q</option>
+                                    <option value="2026-4Q">2026 4Q</option>
+                                    <option value="2027-1Q">2027 1Q</option>
+                                    <option value="2027-2Q">2027 2Q</option>
+                                    <option value="2027-3Q">2027 3Q</option>
+                                    <option value="2027-4Q">2027 4Q</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-slate-400 mb-1">실교체 예정일</label>
+                                <input type="text" id="form-schedule-date" placeholder="예: 26.08.16" class="w-full px-2 py-1.5 border border-slate-200 rounded text-xs">
+                            </div>
+                            <div>
+                                <label class="block text-slate-400 mb-1">교체 보전 여부</label>
+                                <select id="form-schedule-completed" class="w-full px-2 py-1.5 border border-slate-200 rounded text-xs">
+                                    <option value="false">미완료 (교체 대기)</option>
+                                    <option value="true">작업 완료 (정상)</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-lg transition text-sm">
+                        설비 보전 데이터 저장하기
+                    </button>
+                </form>
+            </div>
+        </section>
+    </main>
+
+    <!-- 인터랙티브 신속 편집 모달 (테이블 클릭 시 작동) -->
+    <div id="edit-modal" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center hidden">
+        <div class="bg-white p-6 rounded-2xl max-w-sm w-full mx-4 shadow-xl text-xs space-y-4">
+            <div class="flex justify-between items-center border-b pb-2">
+                <h3 class="font-bold text-sm text-slate-700">와이어로프 보전 수정</h3>
+                <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+            <div id="modal-info" class="p-3 bg-slate-50 rounded-lg text-slate-500">
+                <!-- 정보 출력 -->
+            </div>
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-slate-500 mb-1 font-medium">교체 등록 예정일</label>
+                    <input type="text" id="modal-date" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="예: 26.08.16 또는 비워두기">
+                </div>
+                <div>
+                    <label class="block text-slate-500 mb-1 font-medium">작업 보전 상태</label>
+                    <select id="modal-is-completed" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="false">미완료 (날짜 도과여부에 따라 자동으로 파랑/빨강 판정)</option>
+                        <option value="true">보전 완료 (초록색 고정)</option>
+                    </select>
+                </div>
+            </div>
+            <div class="flex space-x-2 pt-2">
+                <button onclick="closeModal()" class="w-1/2 bg-slate-100 hover:bg-slate-200 text-slate-600 py-2 rounded-lg font-medium">취소</button>
+                <button onclick="saveModalChanges()" class="w-1/2 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg font-bold">저장 완료</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 일괄 동작 플로팅 액션 바 -->
+    <div id="batch-bar" class="fixed bottom-16 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center space-x-4 z-40 transition-all duration-300 transform translate-y-24 opacity-0 pointer-events-none max-w-lg w-11/12 text-xs">
+        <div class="flex-grow">
+            <p class="font-bold"><span id="batch-count" class="text-blue-400 text-sm">0</span>개 설비 선택됨</p>
+            <p class="text-[10px] text-slate-400">외주 일괄 등록 및 완료 마스터 관리</p>
+        </div>
+        <div class="flex space-x-2">
+            <button onclick="batchOutsource()" class="bg-blue-600 hover:bg-blue-700 px-3 py-2 rounded-lg font-bold transition">외주 등록</button>
+            <button onclick="batchComplete()" class="bg-emerald-600 hover:bg-emerald-700 px-3 py-2 rounded-lg font-bold transition">일괄 완료</button>
+            <button onclick="clearBatchSelection()" class="text-slate-400 hover:text-slate-200 px-2">취소</button>
+        </div>
+    </div>
+
+    <!-- 커스텀 알림/컨펌 모달 -->
+    <div id="custom-alert-modal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center hidden">
+        <div class="bg-white p-6 rounded-2xl max-w-sm w-full mx-4 shadow-xl text-xs space-y-4 text-center">
+            <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-blue-100 text-blue-600" id="alert-icon-box">
+                <i data-lucide="info" class="w-6 h-6"></i>
+            </div>
+            <h3 class="text-sm font-bold text-slate-800" id="alert-title">알림</h3>
+            <p class="text-slate-500 whitespace-pre-line leading-relaxed" id="alert-message"></p>
+            <div class="flex space-x-2 pt-2" id="alert-btn-container">
+                <!-- 버튼 동적 생성 -->
+            </div>
+        </div>
+    </div>
+
+    <!-- 하단 AppSheet 스타일 탭 네비게이션 -->
+    <nav class="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 shadow-lg flex justify-around py-2.5 z-40 text-[10px] text-slate-400 font-medium">
+        <button onclick="switchTab('dashboard')" id="tab-dashboard" class="flex flex-col items-center space-y-1 text-blue-600">
+            <i data-lucide="layout-dashboard" class="w-5 h-5"></i>
+            <span>대시보드</span>
+        </button>
+        <button onclick="switchTab('list')" id="tab-list" class="flex flex-col items-center space-y-1">
+            <i data-lucide="list-ordered" class="w-5 h-5"></i>
+            <span>설비 현황</span>
+        </button>
+        <button onclick="switchTab('outsourcing')" id="tab-outsourcing" class="flex flex-col items-center space-y-1">
+            <i data-lucide="external-link" class="w-5 h-5"></i>
+            <span>외주 공동 처리</span>
+        </button>
+        <button onclick="switchTab('add')" id="tab-add" class="flex flex-col items-center space-y-1">
+            <i data-lucide="plus-circle" class="w-5 h-5"></i>
+            <span>스케줄 추가</span>
+        </button>
+    </nav>
+
+    <!-- 앱 엔진 로직 -->
+    <script>
+        // 오늘 일자 기준 고정점: 2026년 6월 23일
+        const TODAY = new Date(2026, 5, 23); // JS Date는 월이 0부터 시작하므로 5 = 6월
+
+        // 이미지 속 원본 와이어로프 데이터셋 (색상 기준을 isCompleted 논리로 완벽 이전)
+        const initialCranes = [
+            { id: 1, line: "CPL", seq: 1, name: "H1", capacity: "30TON", type: "주권", cycle: "1년", schedules: [{ quarter: "2026-3Q", date: "26.08.16", isCompleted: false }] },
+            { id: 2, line: "CPL", seq: 2, name: "P2", capacity: "30TON", type: "주권", cycle: "1년", schedules: [{ quarter: "2026-2Q", date: "26.04.06", isCompleted: true }, { quarter: "2027-2Q", date: "27.04.06", isCompleted: false }] },
+            { id: 3, line: "CPL", seq: 2, name: "P2", capacity: "5TON", type: "보권", cycle: "1년 6개월", schedules: [{ quarter: "2026-4Q", date: "26.11.11", isCompleted: false }] },
+            { id: 4, line: "CPL", seq: 3, name: "P3", capacity: "30TON", type: "주권", cycle: "1년", schedules: [{ quarter: "2026-2Q", date: "26.04.06", isCompleted: true }, { quarter: "2027-2Q", date: "27.04.06", isCompleted: false }] },
+            { id: 5, line: "CPL", seq: 3, name: "P3", capacity: "5TON", type: "보권", cycle: "1년 6개월", schedules: [{ quarter: "2026-1Q", date: "26.01.06", isCompleted: true }, { quarter: "2027-3Q", date: "27.07.06", isCompleted: false }] },
+            { id: 6, line: "CPL", seq: 4, name: "A1", capacity: "2.8TON", type: "주권", cycle: "2년", schedules: [{ quarter: "2027-3Q", date: "27.07.22", isCompleted: false }] },
+
+            { id: 7, line: "CRM", seq: 1, name: "H2", capacity: "10TON", type: "주권", cycle: "2년", schedules: [{ quarter: "2026-3Q", date: "26.07.12", isCompleted: false }] },
+            { id: 8, line: "CRM", seq: 2, name: "R1", capacity: "30TON", type: "주권", cycle: "2년", schedules: [{ quarter: "2026-2Q", date: "26.05.23", isCompleted: true }] },
+            { id: 9, line: "CRM", seq: 3, name: "R2", capacity: "45TON", type: "주권", cycle: "2년", schedules: [{ quarter: "2026-2Q", date: "26.05.23", isCompleted: true }] },
+            { id: 10, line: "CRM", seq: 4, name: "R3", capacity: "30TON", type: "주권", cycle: "1년", schedules: [{ quarter: "2026-2Q", date: "26.04.12", isCompleted: true }, { quarter: "2027-2Q", date: "27.04.12", isCompleted: false }] },
+            { id: 11, line: "CRM", seq: 4, name: "R3", capacity: "5TON", type: "보권", cycle: "1년 6개월", schedules: [{ quarter: "2026-1Q", date: "26.01.06", isCompleted: true }, { quarter: "2027-2Q", date: "27.04.06", isCompleted: false }] },
+            { id: 12, line: "CRM", seq: 5, name: "R4", capacity: "30TON", type: "주권", cycle: "1년", schedules: [{ quarter: "2026-3Q", date: "26.06.06", isCompleted: false }] }, // 오늘 23일 기준 지났으므로 빨간색!
+
+            { id: 13, line: "CGL", seq: 1, name: "G1", capacity: "30TON", type: "주권", cycle: "2년", schedules: [{ quarter: "2026-2Q", date: "26.05.23", isCompleted: true }] },
+            { id: 14, line: "CGL", seq: 1, name: "G1", capacity: "5TON", type: "보권", cycle: "2년", schedules: [{ quarter: "2026-2Q", date: "26.05.23", isCompleted: true }] },
+            { id: 15, line: "CGL", seq: 2, name: "G2", capacity: "30TON", type: "주권", cycle: "2년", schedules: [{ quarter: "2026-2Q", date: "26.05.23", isCompleted: true }] },
+            { id: 16, line: "CGL", seq: 2, name: "G2", capacity: "5TON", type: "보권", cycle: "2년", schedules: [{ quarter: "2026-2Q", date: "26.04.28", isCompleted: true }, { quarter: "2027-4Q", date: "28.04.28", isCompleted: false }] },
+            { id: 17, line: "CGL", seq: 3, name: "G3", capacity: "30TON", type: "주권", cycle: "2년", schedules: [{ quarter: "2026-1Q", date: "26.02.21", isCompleted: true }] },
+            { id: 18, line: "CGL", seq: 3, name: "G3", capacity: "5TON", type: "보권", cycle: "2년", schedules: [{ quarter: "2026-3Q", date: "26.07.06", isCompleted: false }] },
+            { id: 19, line: "CGL", seq: 4, name: "G4", capacity: "15TON", type: "주권", cycle: "2년", schedules: [{ quarter: "2026-3Q", date: "26.07.12", isCompleted: false }] },
+            { id: 20, line: "CGL", seq: 5, name: "G5(바텀드로스)", capacity: "7.5TON", type: "주권", cycle: "6개월", schedules: [{ quarter: "2026-2Q", date: "26.05.30", isCompleted: true }] },
+            { id: 21, line: "CGL", seq: 6, name: "G6(프리멜트)", capacity: "3TON", type: "주권", cycle: "2년", schedules: [{ quarter: "2026-3Q", date: "26.09.11", isCompleted: false }] },
+
+            { id: 22, line: "1CCL", seq: 1, name: "C1-1", capacity: "30TON", type: "주권", cycle: "2년", schedules: [{ quarter: "2026-2Q", date: "26.05.24", isCompleted: true }] },
+            { id: 23, line: "1CCL", seq: 2, name: "C1", capacity: "25TON", type: "주권", cycle: "1년", schedules: [{ quarter: "2026-3Q", date: "26.06.24", isCompleted: false }] },
+            { id: 24, line: "1CCL", seq: 3, name: "C2", capacity: "25TON", type: "주권", cycle: "2년", schedules: [{ quarter: "2026-1Q", date: "26.02.14", isCompleted: true }, { quarter: "2027-4Q", date: "28.02.14", isCompleted: false }] },
+            { id: 25, line: "1CCL", seq: 3, name: "C2", capacity: "5TON", type: "보권", cycle: "2년 6개월", schedules: [{ quarter: "2027-2Q", date: "27.01.14", isCompleted: false }] },
+            { id: 26, line: "1CCL", seq: 4, name: "C2", capacity: "25TON", type: "주권", cycle: "4년", schedules: [{ quarter: "2027-4Q", date: "28.05.18", isCompleted: false }] },
+            { id: 27, line: "1CCL", seq: 4, name: "C2", capacity: "5TON", type: "보권", cycle: "2년 6개월", schedules: [{ quarter: "2027-2Q", date: "27.01.14", isCompleted: false }] },
+            { id: 28, line: "1CCL", seq: 5, name: "C4", capacity: "15TON", type: "주권", cycle: "1년", schedules: [{ quarter: "2026-2Q", date: "26.04.12", isCompleted: true }, { quarter: "2027-2Q", date: "27.04.12", isCompleted: false }] },
+            { id: 29, line: "1CCL", seq: 6, name: "C5", capacity: "7.5TON", type: "주권", cycle: "1년", schedules: [{ quarter: "2026-2Q", date: "26.05.24", isCompleted: true }] },
+
+            { id: 30, line: "2CCL", seq: 1, name: "S1", capacity: "15TON", type: "주권", cycle: "2년", schedules: [{ quarter: "2026-3Q", date: "26.07.14", isCompleted: false }] },
+            { id: 31, line: "2CCL", seq: 2, name: "S2", capacity: "5TON", type: "주권", cycle: "2년", schedules: [{ quarter: "2026-2Q", date: "26.05.01", isCompleted: true }] },
+            { id: 32, line: "2CCL", seq: 3, name: "2C1", capacity: "30TON", type: "주권", cycle: "2년", schedules: [{ quarter: "2026-2Q", date: "26.05.24", isCompleted: true }] },
+            { id: 33, line: "2CCL", seq: 3, name: "2C1", capacity: "5TON", type: "보권", cycle: "2년", schedules: [{ quarter: "2026-3Q", date: "26.07.13", isCompleted: false }] },
+            { id: 34, line: "2CCL", seq: 4, name: "2C2", capacity: "20TON", type: "주권", cycle: "2년", schedules: [{ quarter: "2026-2Q", date: "26.05.24", isCompleted: true }] },
+            { id: 35, line: "2CCL", seq: 4, name: "2C2", capacity: "5TON", type: "보권", cycle: "2년", schedules: [{ quarter: "2026-3Q", date: "26.07.13", isCompleted: false }] },
+            { id: 36, line: "2CCL", seq: 5, name: "2C3", capacity: "30TON", type: "주권", cycle: "2년", schedules: [{ quarter: "2026-2Q", date: "26.05.24", isCompleted: true }] },
+            { id: 37, line: "2CCL", seq: 6, name: "2C4", capacity: "15TON", type: "주권", cycle: "2년", schedules: [{ quarter: "2026-4Q", date: "26.10.04", isCompleted: false }] },
+            { id: 38, line: "2CCL", seq: 7, name: "1S1", capacity: "20TON", type: "주권", cycle: "2년", schedules: [{ quarter: "2027-3Q", date: "27.08.16", isCompleted: false }] },
+            { id: 39, line: "2CCL", seq: 8, name: "1S2", capacity: "20TON", type: "주권", cycle: "2년", schedules: [{ quarter: "2027-2Q", date: "27.05.11", isCompleted: false }] },
+            { id: 40, line: "2CCL", seq: 8, name: "1S2", capacity: "5TON", type: "보권", cycle: "2년", schedules: [{ quarter: "2027-2Q", date: "27.05.11", isCompleted: false }] },
+            { id: 41, line: "2CCL", seq: 9, name: "1S3", capacity: "30TON", type: "주권", cycle: "2년", schedules: [{ quarter: "2027-3Q", date: "27.08.16", isCompleted: false }] },
+
+            { id: 42, line: "3CCL", seq: 1, name: "3C1", capacity: "30TON", type: "주권", cycle: "2년", schedules: [{ quarter: "2026-4Q", date: "26.08.31", isCompleted: false }] },
+            { id: 43, line: "3CCL", seq: 1, name: "3C1", capacity: "5TON", type: "보권", cycle: "2년", schedules: [{ quarter: "2027-2Q", date: "27.07.14", isCompleted: false }] },
+            { id: 44, line: "3CCL", seq: 2, name: "3C2", capacity: "20TON", type: "주권", cycle: "2년", schedules: [{ quarter: "2026-4Q", date: "26.08.31", isCompleted: false }] },
+            { id: 45, line: "3CCL", seq: 2, name: "3C2", capacity: "5TON", type: "보권", cycle: "2년", schedules: [{ quarter: "2027-3Q", date: "27.07.04", isCompleted: false }] },
+            { id: 46, line: "3CCL", seq: 3, name: "3C3", capacity: "30TON", type: "주권", cycle: "2년", schedules: [{ quarter: "2026-4Q", date: "26.08.31", isCompleted: false }] },
+            { id: 47, line: "3CCL", seq: 3, name: "3C3", capacity: "5TON", type: "보권", cycle: "2년", schedules: [{ quarter: "2027-3Q", date: "27.07.04", isCompleted: false }] },
+            { id: 48, line: "3CCL", seq: 4, name: "3C4", capacity: "20TON", type: "주권", cycle: "1년 6개월", schedules: [{ quarter: "2026-3Q", date: "26.08.31", isCompleted: false }] },
+            { id: 49, line: "3CCL", seq: 5, name: "3C5", capacity: "20TON", type: "주권", cycle: "1년 6개월", schedules: [{ quarter: "2026-3Q", date: "26.08.31", isCompleted: false }] },
+            { id: 50, line: "3CCL", seq: 5, name: "3C5", capacity: "5TON", type: "보권", cycle: "2년", schedules: [{ quarter: "2027-3Q", date: "27.07.04", isCompleted: false }] },
+            { id: 51, line: "3CCL", seq: 6, name: "3C6", capacity: "20TON", type: "주권", cycle: "1년 6개월", schedules: [{ quarter: "2026-3Q", date: "26.08.31", isCompleted: false }] },
+
+            { id: 52, line: "UTILITY", seq: 1, name: "RS1", capacity: "5TON", type: "주권", cycle: "5년", schedules: [{ quarter: "2027-3Q", date: "27.09.01", isCompleted: false }] },
+            { id: 53, line: "UTILITY", seq: 2, name: "M1", capacity: "5TON", type: "주권", cycle: "10년", schedules: [{ quarter: "2027-4Q", date: "33.01.25", isCompleted: false }] }
+        ];
+
+        let cranes = JSON.parse(localStorage.getItem('crane_data')) || [...initialCranes];
+        let selectedCranes = new Set();
+        let currentEditingCell = null;
+        let lineChartInstance = null;
+        let donutChartInstance = null;
+
+        // 화면 로딩과 동시에 초기화 실행
+        window.addEventListener('DOMContentLoaded', () => {
+            initApp();
+            lucide.createIcons();
+        });
+
+        function initApp() {
+            renderKPIs();
+            renderDashboardList();
+            renderTable();
+            renderOutsourcingTab();
+            initCharts();
+        }
+
+        // 로컬스토리지를 통해 데이터 저장
+        function saveState() {
+            localStorage.setItem('crane_data', JSON.stringify(cranes));
+            initApp();
+        }
+
+        // 데이터 완전히 초기 복원 (커스텀 컨펌 이용)
+        function resetToDefault() {
+            confirmCustom('데이터를 원본 이미지 스케줄과 완전히 동일하게 초기화하시겠습니까?', '데이터 초기화', () => {
+                cranes = JSON.parse(JSON.stringify(initialCranes));
+                selectedCranes.clear();
+                updateBatchBar();
+                saveState();
+                alertCustom('데이터가 초기 설정값으로 안전하게 복원되었습니다.');
+            });
+        }
+
+        // 탭 스위처
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-view').forEach(view => view.classList.add('hidden'));
+            document.getElementById(`view-${tabId}`).classList.remove('hidden');
+
+            // 내비게이션 탭 하이라이트 조정
+            document.querySelectorAll('nav button').forEach(btn => btn.classList.remove('text-blue-600'));
+            document.getElementById(`tab-${tabId}`).classList.add('text-blue-600');
+
+            // 탭에 맞는 서브 렌더링
+            if (tabId === 'dashboard') {
+                setTimeout(initCharts, 100);
+            } else if (tabId === 'outsourcing') {
+                renderOutsourcingTab();
+            }
+        }
+
+        // YY.MM.DD 형식 날짜 파싱 헬퍼
+        function parseYYMMDD(dateStr) {
+            if (!dateStr || dateStr === '-') return null;
+            const parts = dateStr.trim().split('.');
+            if (parts.length !== 3) return null;
+            let year = parseInt(parts[0]);
+            if (year < 100) year += 2000;
+            const month = parseInt(parts[1]) - 1;
+            const day = parseInt(parts[2]);
+            return new Date(year, month, day);
+        }
+
+        // 신규 상태 관리 엔진 (날짜 비교 기반 자동 판정)
+        function getScheduleStatus(sched) {
+            if (sched.isCompleted) {
+                return { color: 'green', text: '보전 완료', bgClass: 'bg-[#10b981]', textClass: 'text-white' };
+            }
+            const d = parseYYMMDD(sched.date);
+            if (!d) {
+                return { color: 'blue', text: '교체 권장', bgClass: 'bg-[#3b82f6]', textClass: 'text-white' };
+            }
+            if (d < TODAY) {
+                // 예정일이 오늘(2026.06.23)보다 과거인데 미완료인 경우 -> 위험 (빨간색)
+                return { color: 'red', text: '주기 초과', bgClass: 'bg-[#ef4444]', textClass: 'text-white font-extrabold animate-pulse' };
+            } else {
+                // 미래에 예정되어 있는 경우 -> 교체 권장 (파란색)
+                return { color: 'blue', text: '교체 권장', bgClass: 'bg-[#3b82f6]', textClass: 'text-white' };
+            }
+        }
+
+        // 핵심 통계 (KPI) 연산
+        function renderKPIs() {
+            const uniqueCranes = new Set(cranes.map(c => c.line + '-' + c.name)).size;
+            document.getElementById('stat-total-cranes').innerText = `${uniqueCranes}대`;
+
+            let greenCount = 0;
+            let blueCount = 0;
+            let redCount = 0;
+
+            cranes.forEach(c => {
+                c.schedules.forEach(s => {
+                    const stat = getScheduleStatus(s);
+                    if (stat.color === 'green') greenCount++;
+                    if (stat.color === 'blue') blueCount++;
+                    if (stat.color === 'red') redCount++;
+                });
+            });
+
+            document.getElementById('stat-completed').innerText = `${greenCount}건`;
+            document.getElementById('stat-in-progress').innerText = `${blueCount}건`;
+            document.getElementById('stat-upcoming').innerText = `${redCount}건`;
+        }
+
+        // 대시보드 경고리스트 렌더링 (빨간색 위험도 우선순)
+        function renderDashboardList() {
+            const container = document.getElementById('dashboard-upcoming-list');
+            container.innerHTML = '';
+
+            const activeSchedules = [];
+            cranes.forEach(c => {
+                c.schedules.forEach(s => {
+                    const stat = getScheduleStatus(s);
+                    if (stat.color !== 'green') {
+                        activeSchedules.push({ ...c, schedule: s, stat });
+                    }
+                });
+            });
+
+            // 빨간색(주기초과) 우선 정렬 후 날짜순
+            activeSchedules.sort((a, b) => {
+                if (a.stat.color === 'red' && b.stat.color !== 'red') return -1;
+                if (a.stat.color !== 'red' && b.stat.color === 'red') return 1;
+                return a.schedule.date.localeCompare(b.schedule.date);
+            });
+
+            if (activeSchedules.length === 0) {
+                container.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-slate-400">지연되거나 임박한 일정이 없습니다. 모두 정상 작동 중입니다.</td></tr>`;
+                return;
+            }
+
+            activeSchedules.slice(0, 5).forEach(item => {
+                const row = document.createElement('tr');
+                row.className = "border-b border-slate-100 hover:bg-slate-50 transition";
+                row.innerHTML = `
+                    <td class="p-2.5 font-bold text-slate-500">${item.line}</td>
+                    <td class="p-2.5 font-semibold text-slate-700">${item.name} (${item.capacity})</td>
+                    <td class="p-2.5 text-slate-500">${item.type}</td>
+                    <td class="p-2.5 text-slate-500">${item.cycle}</td>
+                    <td class="p-2.5 font-bold">${item.schedule.date}</td>
+                    <td class="p-2.5">
+                        <span class="px-2 py-1 rounded text-[10px] font-bold ${item.stat.bgClass} ${item.stat.textClass}">
+                            ${item.stat.text}
+                        </span>
+                    </td>
+                `;
+                container.appendChild(row);
+            });
+        }
+
+        // 설비 마스터 리스트 테이블 빌더
+        function renderTable() {
+            const tbody = document.getElementById('crane-table-body');
+            tbody.innerHTML = '';
+
+            const filtered = applyFilterLogic();
+            
+            // 마스터 체크박스 동기화
+            const allChecked = filtered.length > 0 && filtered.every(item => selectedCranes.has(item.id));
+            document.getElementById('select-all-cranes').checked = allChecked;
+
+            let lastLine = '';
+            filtered.forEach(item => {
+                const tr = document.createElement('tr');
+                const isRowSelected = selectedCranes.has(item.id) ? 'checked' : '';
+                tr.className = `hover:bg-slate-50 transition duration-150 border-b border-slate-100 ${selectedCranes.has(item.id) ? 'bg-blue-50/40' : ''}`;
+
+                // 라인 그룹 통합 처리
+                let lineTd = '';
+                if (item.line !== lastLine) {
+                    const lineSpan = filtered.filter(f => f.line === item.line).length;
+                    lineTd = `<td rowspan="${lineSpan}" class="p-3 border-r border-slate-200 bg-slate-100/50 font-black text-slate-600 text-sm tracking-wider uppercase">${item.line}</td>`;
+                    lastLine = item.line;
+                }
+
+                // 8대 주요 연간 일정 분기 매핑
+                const quarters = ['2026-1Q', '2026-2Q', '2026-3Q', '2026-4Q', '2027-1Q', '2027-2Q', '2027-3Q', '2027-4Q'];
+                let quarterTds = '';
+
+                quarters.forEach(q => {
+                    const sched = item.schedules.find(s => s.quarter === q);
+                    if (sched) {
+                        const stat = getScheduleStatus(sched);
+                        quarterTds += `
+                            <td onclick="openEditModal(${item.id}, '${q}')" class="p-1 border-r border-slate-200 cursor-pointer hover:scale-[1.03] transition-all">
+                                <div class="${stat.bgClass} ${stat.textClass} py-1.5 px-1 rounded font-bold shadow-sm text-[10px] tracking-tighter">
+                                    ${sched.date}
+                                </div>
+                            </td>
+                        `;
+                    } else {
+                        quarterTds += `
+                            <td onclick="openEditModal(${item.id}, '${q}')" class="p-2 border-r border-slate-100 cursor-pointer hover:bg-slate-100">
+                                <span class="text-slate-300">-</span>
+                            </td>
+                        `;
+                    }
+                });
+
+                tr.innerHTML = `
+                    <td class="p-2.5 border-r border-slate-200">
+                        <input type="checkbox" onchange="toggleSelectCrane(${item.id})" ${isRowSelected} class="w-4 h-4 text-blue-600 rounded border-slate-300">
+                    </td>
+                    ${lineTd}
+                    <td class="p-2.5 border-r border-slate-100 font-semibold text-slate-400">${item.seq}</td>
+                    <td class="p-2.5 border-r border-slate-100 font-bold text-slate-700">${item.name}</td>
+                    <td class="p-2.5 border-r border-slate-100 text-slate-500 font-medium">${item.capacity}</td>
+                    <td class="p-2.5 border-r border-slate-100 text-slate-500">${item.type}</td>
+                    <td class="p-2.5 border-r border-slate-200 text-slate-600 font-semibold">${item.cycle}</td>
+                    ${quarterTds}
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // 다중 선택 기능 연계 로직
+        function toggleSelectCrane(id) {
+            if (selectedCranes.has(id)) {
+                selectedCranes.delete(id);
+            } else {
+                selectedCranes.add(id);
+            }
+            renderTable();
+            updateBatchBar();
+        }
+
+        function toggleSelectAllCranes(master) {
+            const filtered = applyFilterLogic();
+            if (master.checked) {
+                filtered.forEach(item => selectedCranes.add(item.id));
+            } else {
+                filtered.forEach(item => selectedCranes.delete(item.id));
+            }
+            renderTable();
+            updateBatchBar();
+        }
+
+        function clearBatchSelection() {
+            selectedCranes.clear();
+            renderTable();
+            updateBatchBar();
+        }
+
+        // 하단 플로팅 동작 바 업데이트
+        function updateBatchBar() {
+            const bar = document.getElementById('batch-bar');
+            const countSpan = document.getElementById('batch-count');
+            if (selectedCranes.size > 0) {
+                countSpan.innerText = selectedCranes.size;
+                bar.classList.remove('translate-y-24', 'opacity-0', 'pointer-events-none');
+                bar.classList.add('translate-y-0', 'opacity-100');
+            } else {
+                bar.classList.remove('translate-y-0', 'opacity-100');
+                bar.classList.add('translate-y-24', 'opacity-0', 'pointer-events-none');
+            }
+        }
+
+        // 일괄 외주 처리 연동
+        function batchOutsource() {
+            if (selectedCranes.size === 0) return;
+            const size = selectedCranes.size;
+            alertCustom(`선택하신 ${size}대의 설비를 '외주 공동 처리' 대상으로 일괄 지정하고 분석 화면으로 전환합니다.`, '외주 묶음 처리');
+            switchTab('outsourcing');
+            updateBatchBar();
+        }
+
+        // 일괄 교체 완료(초록색) 처리
+        function batchComplete() {
+            if (selectedCranes.size === 0) return;
+            confirmCustom(`선택하신 ${selectedCranes.size}대 설비의 로프 교체가 정상 완료되었습니까?\n확인 시 교체 상태가 '보전 완료(초록색)'로 변경됩니다.`, '보전 일괄 완료', () => {
+                cranes.forEach(c => {
+                    if (selectedCranes.has(c.id)) {
+                        c.schedules.forEach(s => {
+                            s.isCompleted = true;
+                        });
+                    }
+                });
+                saveState();
+                selectedCranes.clear();
+                updateBatchBar();
+                alertCustom('선택된 설비들이 성공적으로 완료 처리되었습니다.', '보전 완료 성공');
+            });
+        }
+
+        // 필터링 적용 논리
+        function applyFilterLogic() {
+            const query = document.getElementById('searchQuery').value.toLowerCase();
+            const line = document.getElementById('filterLine').value;
+            const type = document.getElementById('filterType').value;
+            const capacity = document.getElementById('filterCapacity').value;
+
+            return cranes.filter(item => {
+                const matchesSearch = item.name.toLowerCase().includes(query) || item.capacity.toLowerCase().includes(query);
+                const matchesLine = line === 'ALL' || item.line === line;
+                const matchesType = type === 'ALL' || item.type === type;
+                
+                let matchesCapacity = true;
+                const tonNum = parseFloat(item.capacity.replace(/[^0-9.]/g, ""));
+                if (capacity === 'high') matchesCapacity = tonNum >= 30;
+                else if (capacity === 'medium') matchesCapacity = tonNum >= 10 && tonNum < 30;
+                else if (capacity === 'low') matchesCapacity = tonNum < 10;
+
+                return matchesSearch && matchesLine && matchesType && matchesCapacity;
+            });
+        }
+
+        function applyFilters() {
+            renderTable();
+        }
+
+        // 외주 공동 처리 대시보드 렌더링
+        function renderOutsourcingTab() {
+            const packageAContainer = document.getElementById('package-a-list');
+            const packageBContainer = document.getElementById('package-b-list');
+            
+            packageAContainer.innerHTML = '';
+            packageBContainer.innerHTML = '';
+            
+            // 미완료 상태인 일정들을 추출
+            const uncompletedCranes = cranes.filter(c => c.schedules.some(s => !s.isCompleted));
+            
+            let aCount = 0;
+            let bCount = 0;
+            
+            uncompletedCranes.forEach(item => {
+                const imminentScheds = item.schedules.filter(s => !s.isCompleted);
+                if (imminentScheds.length === 0) return;
+                
+                const nextSched = imminentScheds[0];
+                const stat = getScheduleStatus(nextSched);
+                
+                const isShortCycle = item.cycle.includes('1년') || item.cycle.includes('6개월');
+                const isSelected = selectedCranes.has(item.id) ? 'checked' : '';
+                
+                const cardHtml = `
+                    <div class="flex items-center justify-between p-3.5 bg-slate-50 rounded-xl border border-slate-200/60 shadow-sm hover:bg-white hover:border-blue-300 transition">
+                        <div class="flex items-center space-x-3">
+                            <input type="checkbox" ${isSelected} onchange="toggleOutsourcingSelection(${item.id})" class="w-4.5 h-4.5 text-blue-600 rounded border-slate-300">
+                            <div>
+                                <p class="font-extrabold text-slate-800 text-xs">${item.name} <span class="text-[10px] text-slate-400">(${item.capacity})</span></p>
+                                <p class="text-[10px] text-slate-500 font-medium">${item.line} • ${item.type} • 주기 ${item.cycle}</p>
+                                <p class="text-[10px] text-blue-600 font-semibold mt-0.5">예정일: ${nextSched.date}</p>
+                            </div>
+                        </div>
+                        <span class="px-2 py-0.5 rounded text-[9px] font-black tracking-tight ${stat.bgClass} ${stat.textClass}">
+                            ${stat.text}
+                        </span>
+                    </div>
+                `;
+                
+                if (isShortCycle) {
+                    packageAContainer.insertAdjacentHTML('beforeend', cardHtml);
+                    aCount++;
+                } else {
+                    packageBContainer.insertAdjacentHTML('beforeend', cardHtml);
+                    bCount++;
+                }
+            });
+            
+            document.getElementById('pack-a-badge').innerText = `${aCount}대`;
+            document.getElementById('pack-b-badge').innerText = `${bCount}대`;
+            
+            renderOutsourcingSimulator();
+        }
+
+        function toggleOutsourcingSelection(id) {
+            if (selectedCranes.has(id)) {
+                selectedCranes.delete(id);
+            } else {
+                selectedCranes.add(id);
+            }
+            renderOutsourcingTab();
+        }
+
+        // 공동 발주 시너지 시뮬레이터 연산
+        function renderOutsourcingSimulator() {
+            const simBody = document.getElementById('sim-body');
+            const simSummary = document.getElementById('sim-summary');
+            simBody.innerHTML = '';
+            
+            if (selectedCranes.size === 0) {
+                simBody.innerHTML = `
+                    <div class="text-center py-10 text-slate-400">
+                        <i data-lucide="info" class="w-8 h-8 mx-auto mb-2 text-slate-300"></i>
+                        <p class="font-bold">외주를 함께 처리할 크레인들을 좌측 리스트에서 선택하십시오.</p>
+                        <p class="text-[10px] mt-1 text-slate-400">선택 시 외주 셋업 공임 및 비가동 시너지 절감액이 즉시 분석됩니다.</p>
+                    </div>
+                `;
+                simSummary.innerHTML = `
+                    <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 text-slate-400 text-center text-xs">
+                        선택된 설비가 없습니다.
+                    </div>
+                `;
+                lucide.createIcons();
+                return;
+            }
+            
+            const selectedList = cranes.filter(c => selectedCranes.has(c.id));
+            let totalTons = 0;
+            const lineSet = new Set();
+            
+            selectedList.forEach(item => {
+                const tVal = parseFloat(item.capacity.replace(/[^0-9.]/g, "")) || 0;
+                totalTons += tVal;
+                lineSet.add(item.line);
+                
+                const div = document.createElement('div');
+                div.className = "flex justify-between items-center py-2 border-b border-slate-100 last:border-0";
+                div.innerHTML = `
+                    <span class="font-bold text-slate-700">${item.line} - ${item.name} <span class="text-[10px] font-normal text-slate-400">(${item.capacity})</span></span>
+                    <span class="font-semibold text-blue-600">${item.cycle} 주기</span>
+                `;
+                simBody.appendChild(div);
+            });
+            
+            // 시공 및 출장 셋업 가상비용
+            const baseSetupFee = 400000; // 크레인 보전 셋업 비용 40만원
+            const downtimeLoss = 900000; // 일별 공장 대기 손실 90만원
+            const singleSetupFeeTotal = baseSetupFee * selectedList.length;
+            const coSetupFeeTotal = baseSetupFee * 1.6; // 일괄 공동 보전 시 절감액
+            const setupSavings = singleSetupFeeTotal - coSetupFeeTotal;
+            const lossSavings = downtimeLoss * selectedList.length * 0.3; // 비가동 대기 30% 절감 시너지
+            const totalSavings = setupSavings + lossSavings;
+
+            simSummary.innerHTML = `
+                <div class="bg-blue-50 p-4 rounded-xl border border-blue-100 space-y-3">
+                    <h4 class="font-bold text-blue-900 text-xs flex items-center">
+                        <i data-lucide="sparkles" class="w-4 h-4 mr-1 text-blue-600"></i> 패키지 공동 보전 효율 예측
+                    </h4>
+                    <div class="grid grid-cols-2 gap-2.5 text-[11px] text-blue-800">
+                        <div>
+                            <p class="text-blue-500">선택 크레인</p>
+                            <p class="text-sm font-black">${selectedList.length}대</p>
+                        </div>
+                        <div>
+                            <p class="text-blue-500">대상 라인</p>
+                            <p class="text-sm font-black">${lineSet.size}개 라인</p>
+                        </div>
+                        <div>
+                            <p class="text-blue-500">총 톤수 합계</p>
+                            <p class="text-sm font-black">${totalTons} TON</p>
+                        </div>
+                        <div>
+                            <p class="text-blue-500">예상 공임 절약</p>
+                            <p class="text-sm font-black text-emerald-600">약 ${(totalSavings / 10000).toFixed(0)} 만원</p>
+                        </div>
+                    </div>
+                    <div class="bg-white/80 p-2.5 rounded-lg border border-blue-200/50 text-[10px] text-slate-600 leading-relaxed">
+                        • 임박한 보전 작업을 일관하여 묶음 의뢰 시 출장비 절감 및 대량 구매 단가 적용이 가능합니다.<br>
+                        • 보전 비가동 정지 시간 공동 관리로 생산 지장을 <strong>최대 30% 감축</strong>합니다.
+                    </div>
+                    <button onclick="exportOutsourcingOrder()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded-lg transition text-xs flex items-center justify-center">
+                        <i data-lucide="file-text" class="w-3.5 h-3.5 mr-1"></i> 공동 외주 의뢰서(CSV) 발행
+                    </button>
+                </div>
+            `;
+            lucide.createIcons();
+        }
+
+        // 외주 공동 발주서 CSV 내보내기
+        function exportOutsourcingOrder() {
+            if (selectedCranes.size === 0) return;
+            const selectedList = cranes.filter(c => selectedCranes.has(c.id));
+            
+            let csvContent = "\uFEFF[공동 외주 보전 의뢰서]\n";
+            csvContent += "의뢰일자,2026.06.23 (임박분 패키지 공동발주)\n";
+            csvContent += "대상 수량," + selectedList.length + "대\n\n";
+            csvContent += "LINE,순번,설비명,용량,작동구분,정기교체주기,교체등록예정일\n";
+            
+            selectedList.forEach(item => {
+                const scheds = item.schedules.filter(s => !s.isCompleted);
+                const schedStr = scheds.map(s => `${s.quarter}(${s.date})`).join(" / ") || "미배정";
+                csvContent += `"${item.line}","${item.seq}","${item.name}","${item.capacity}","${item.type}","${item.cycle}","${schedStr}"\n`;
+            });
+            
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            const url = URL.createObjectURL(blob);
+            link.setAttribute("href", url);
+            link.setAttribute("download", "공동_외주_의뢰서_20260623.csv");
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            alertCustom("공동 외주 의뢰서 다운로드가 완료되었습니다.\n해당 정보로 보전 시공업체에 일괄 단가 계약을 진행하십시오.", "외주 발주 생성 완료");
+        }
+
+        // 신속 편집 모달 핸들러
+        function openEditModal(craneId, quarter) {
+            const crane = cranes.find(c => c.id === craneId);
+            if (!crane) return;
+
+            currentEditingCell = { craneId, quarter };
+            const sched = crane.schedules.find(s => s.quarter === quarter);
+
+            document.getElementById('modal-info').innerHTML = `
+                <p class="font-bold text-slate-700">${crane.line} Line - ${crane.name} (${crane.capacity})</p>
+                <p class="text-[11px]">구분: ${crane.type} | 분기: ${quarter} 일정</p>
+            `;
+
+            document.getElementById('modal-date').value = sched ? sched.date : '';
+            document.getElementById('modal-is-completed').value = (sched && sched.isCompleted) ? 'true' : 'false';
+
+            document.getElementById('edit-modal').classList.remove('hidden');
+        }
+
+        function closeModal() {
+            document.getElementById('edit-modal').classList.add('hidden');
+            currentEditingCell = null;
+        }
+
+        function saveModalChanges() {
+            if (!currentEditingCell) return;
+            const { craneId, quarter } = currentEditingCell;
+            const dateVal = document.getElementById('modal-date').value.trim();
+            const isCompletedVal = document.getElementById('modal-is-completed').value === 'true';
+
+            const craneIndex = cranes.findIndex(c => c.id === craneId);
+            if (craneIndex === -1) return;
+
+            const schedIndex = cranes[craneIndex].schedules.findIndex(s => s.quarter === quarter);
+
+            if (dateVal === '') {
+                if (schedIndex > -1) {
+                    cranes[craneIndex].schedules.splice(schedIndex, 1);
+                }
+            } else {
+                if (schedIndex > -1) {
+                    cranes[craneIndex].schedules[schedIndex].date = dateVal;
+                    cranes[craneIndex].schedules[schedIndex].isCompleted = isCompletedVal;
+                } else {
+                    cranes[craneIndex].schedules.push({ quarter, date: dateVal, isCompleted: isCompletedVal });
+                }
+            }
+
+            saveState();
+            closeModal();
+        }
+
+        // 신규 와이어로프 데이터 추가 양식 저장
+        function saveNewCrane(e) {
+            e.preventDefault();
+            const line = document.getElementById('form-line').value;
+            const seq = parseInt(document.getElementById('form-seq').value);
+            const name = document.getElementById('form-name').value;
+            const capacity = document.getElementById('form-capacity').value;
+            const type = document.getElementById('form-type').value;
+            const cycle = document.getElementById('form-cycle').value;
+
+            const targetQuarter = document.getElementById('form-schedule-quarter').value;
+            const dateVal = document.getElementById('form-schedule-date').value.trim();
+            const completedVal = document.getElementById('form-schedule-completed').value === 'true';
+
+            const schedules = [];
+            if (dateVal) {
+                schedules.push({ quarter: targetQuarter, date: dateVal, isCompleted: completedVal });
+            }
+
+            const newCrane = {
+                id: Date.now(),
+                line,
+                seq,
+                name,
+                capacity,
+                type,
+                cycle,
+                schedules
+            };
+
+            cranes.push(newCrane);
+            saveState();
+            document.getElementById('crane-form').reset();
+            alertCustom(`${name} 설비가 보전 플랫폼 목록에 신규 등록되었습니다.`, '등록 성공');
+            switchTab('list');
+        }
+
+        // Chart.js 인포그래픽 리뉴얼 (초록, 파랑, 빨간색 체제)
+        function initCharts() {
+            if (lineChartInstance) lineChartInstance.destroy();
+            if (donutChartInstance) donutChartInstance.destroy();
+
+            const lines = ["CPL", "CRM", "CGL", "1CCL", "2CCL", "3CCL", "UTILITY"];
+            const countsByLine = lines.map(line => {
+                return cranes.filter(c => c.line === line).reduce((acc, curr) => acc + curr.schedules.length, 0);
+            });
+
+            const ctxLine = document.getElementById('lineChart').getContext('2d');
+            lineChartInstance = new Chart(ctxLine, {
+                type: 'bar',
+                data: {
+                    labels: lines,
+                    datasets: [{
+                        label: '보전 일정 건수',
+                        data: countsByLine,
+                        backgroundColor: 'rgba(59, 130, 246, 0.85)',
+                        borderColor: 'rgb(37, 99, 235)',
+                        borderWidth: 1.5,
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: '#f1f5f9' } },
+                        x: { grid: { display: false } }
+                    }
+                }
+            });
+
+            let green = 0, blue = 0, red = 0;
+            cranes.forEach(c => {
+                c.schedules.forEach(s => {
+                    const stat = getScheduleStatus(s);
+                    if (stat.color === 'green') green++;
+                    if (stat.color === 'blue') blue++;
+                    if (stat.color === 'red') red++;
+                });
+            });
+
+            const ctxDonut = document.getElementById('donutChart').getContext('2d');
+            donutChartInstance = new Chart(ctxDonut, {
+                type: 'doughnut',
+                data: {
+                    labels: ['완료/정상 (초록)', '교체 권장 (파랑)', '주기 초과 (빨강)'],
+                    datasets: [{
+                        data: [green, blue, red],
+                        backgroundColor: ['#10b981', '#3b82f6', '#ef4444'],
+                        borderWidth: 2,
+                        hoverOffset: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } }
+                    },
+                    cutout: '70%'
+                }
+            });
+        }
+
+        // CSV 마스터 내보내기
+        function exportToCSV() {
+            let csvContent = "\uFEFFLine,순번,설비명,용량,구분,교체주기,2026-1Q,2026-2Q,2026-3Q,2026-4Q,2027-1Q,2027-2Q,2027-3Q,2027-4Q\n";
+            const quarters = ['2026-1Q', '2026-2Q', '2026-3Q', '2026-4Q', '2027-1Q', '2027-2Q', '2027-3Q', '2027-4Q'];
+
+            cranes.forEach(item => {
+                let row = [
+                    item.line,
+                    item.seq,
+                    item.name,
+                    item.capacity,
+                    item.type,
+                    item.cycle
+                ];
+
+                quarters.forEach(q => {
+                    const sched = item.schedules.find(s => s.quarter === q);
+                    if (sched) {
+                        const stat = getScheduleStatus(sched);
+                        row.push(`${sched.date}(${stat.text})`);
+                    } else {
+                        row.push("-");
+                    }
+                });
+
+                csvContent += row.map(val => `"${val}"`).join(",") + "\n";
+            });
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            const url = URL.createObjectURL(blob);
+            link.setAttribute("href", url);
+            link.setAttribute("download", "크레인_와이어로프_보전계획_마스터.csv");
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // 사내 보전망을 위한 커스텀 알림/컨펌 시스템 (블로킹 방지)
+        function alertCustom(message, title = "알림") {
+            const modal = document.getElementById('custom-alert-modal');
+            document.getElementById('alert-title').innerText = title;
+            document.getElementById('alert-message').innerText = message;
+            
+            const btnContainer = document.getElementById('alert-btn-container');
+            btnContainer.innerHTML = `
+                <button onclick="closeAlertCustom()" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-lg font-bold transition">확인</button>
+            `;
+            
+            const iconBox = document.getElementById('alert-icon-box');
+            iconBox.className = "mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-blue-100 text-blue-600";
+            iconBox.innerHTML = `<i data-lucide="info" class="w-6 h-6"></i>`;
+            lucide.createIcons();
+
+            modal.classList.remove('hidden');
+        }
+
+        function confirmCustom(message, title = "확인 요청", onConfirm) {
+            const modal = document.getElementById('custom-alert-modal');
+            document.getElementById('alert-title').innerText = title;
+            document.getElementById('alert-message').innerText = message;
+            
+            const btnContainer = document.getElementById('alert-btn-container');
+            btnContainer.innerHTML = `
+                <button onclick="closeAlertCustom()" class="w-1/2 bg-slate-100 hover:bg-slate-200 text-slate-600 py-2.5 rounded-lg font-semibold transition">취소</button>
+                <button id="custom-confirm-yes-btn" class="w-1/2 bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-lg font-bold transition">확인</button>
+            `;
+            
+            document.getElementById('custom-confirm-yes-btn').onclick = () => {
+                closeAlertCustom();
+                if (onConfirm) onConfirm();
+            };
+
+            const iconBox = document.getElementById('alert-icon-box');
+            iconBox.className = "mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-amber-100 text-amber-600";
+            iconBox.innerHTML = `<i data-lucide="help-circle" class="w-6 h-6"></i>`;
+            lucide.createIcons();
+
+            modal.classList.remove('hidden');
+        }
+
+        function closeAlertCustom() {
+            document.getElementById('custom-alert-modal').classList.add('hidden');
+        }
+    </script>
+</body>
+</html>
